@@ -103,10 +103,11 @@ if ! grep -F 'i386:x86-64' <<<"$objdump_output" >/dev/null; then
   exit 1
 fi
 
-# Do not use grep -q in a pipe while pipefail is enabled: grep may close the
-# pipe early and make strings exit with SIGPIPE even when the match exists.
-if ! strings "$binary" | grep -F "aria2 version $ARIA2_VERSION" >/dev/null; then
-  echo "The MinGW output does not contain the expected aria2 version" >&2
+# The version banner is assembled from a fixed label and PACKAGE_VERSION at
+# runtime, so the complete "aria2 version ..." phrase need not be contiguous
+# in the executable.  Search the binary directly for the version literal.
+if ! grep -aF -- "$ARIA2_VERSION" "$binary" >/dev/null; then
+  echo "The MinGW output does not contain the expected version literal" >&2
   exit 1
 fi
 
