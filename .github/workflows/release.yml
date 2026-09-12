@@ -98,7 +98,7 @@ jobs:
           CPU_FLAGS: ${{ matrix.cpu_flags }}
           ARTIFACT_NAME: ${{ matrix.id }}
         run: |
-          docker build --file docker/Dockerfile.mingw --tag local/aria2-mingw .
+          docker build --build-arg ENABLE_GMP="$BITTORRENT" --file docker/Dockerfile.mingw --tag local/aria2-mingw .
           docker run --rm --user 0:0 --env ARIA2_VERSION --env UPSTREAM_TAG --env BITTORRENT --env CPU_FLAGS --env ARTIFACT_NAME --volume "$GITHUB_WORKSPACE:/workspace" local/aria2-mingw bash /workspace/scripts/build-mingw.sh
       - name: Build Debian package
         if: matrix.builder == 'debian'

@@ -1,14 +1,18 @@
 FROM ubuntu:22.04
 
 ARG HOST=x86_64-w64-mingw32
+ARG ENABLE_GMP=yes
 ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /workspace
 
 RUN apt-get update && apt-get install -y --no-install-recommends make binutils autoconf automake autotools-dev libtool patch ca-certificates pkg-config git curl dpkg-dev gcc-mingw-w64 g++-mingw-w64 autopoint libcppunit-dev libxml2-dev libgcrypt20-dev lzip python3-docutils bzip2 file unzip zip xz-utils && rm -rf /var/lib/apt/lists/*
 RUN set -eux; \
+    case "$ENABLE_GMP" in yes|no) ;; *) echo "ENABLE_GMP must be yes or no" >&2; exit 1 ;; esac; \
     download() { curl --fail --location --retry 3 --retry-all-errors --connect-timeout 20 --max-time 180 "$@"; }; \
-    if ! download -o gmp-6.3.0.tar.xz https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz; then \
-      download -o gmp-6.3.0.tar.xz https://ftpmirror.gnu.org/gmp/gmp-6.3.0.tar.xz; \
+    if [ "$ENABLE_GMP" = yes ]; then \
+      if ! download -o gmp-6.3.0.tar.xz https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz; then \
+        download -o gmp-6.3.0.tar.xz https://ftpmirror.gnu.org/gmp/gmp-6.3.0.tar.xz; \
+      fi; \
     fi; \
     download -O https://github.com/libexpat/libexpat/releases/download/R_2_5_0/expat-2.5.0.tar.bz2; \
     download -O https://www.sqlite.org/2023/sqlite-autoconf-3430100.tar.gz; \
@@ -16,7 +20,12 @@ RUN set -eux; \
     download -O https://github.com/c-ares/c-ares/releases/download/cares-1_19_1/c-ares-1.19.1.tar.gz; \
     download -O https://libssh2.org/download/libssh2-1.11.0.tar.bz2
 
-RUN tar xf gmp-6.3.0.tar.xz && cd gmp-6.3.0 && ./configure --disable-shared --enable-static --prefix=/usr/local/$HOST --host=$HOST --disable-cxx --enable-fat CFLAGS="-mtune=generic -O2 -g0" && make -j$(nproc) install
+RUN if [ "$ENABLE_GMP" = yes ]; then \
+      tar xf gmp-6.3.0.tar.xz && \
+      cd gmp-6.3.0 && \
+      ./configure --disable-shared --enable-static --prefix=/usr/local/$HOST --host=$HOST --disable-cxx --enable-fat CFLAGS="-mtune=generic -O2 -g0" && \
+      make -j$(nproc) install; \
+    fi
 RUN tar xf expat-2.5.0.tar.bz2 && cd expat-2.5.0 && ./configure --disable-shared --enable-static --prefix=/usr/local/$HOST --host=$HOST --build=$(dpkg-architecture -qDEB_BUILD_GNU_TYPE) && make -j$(nproc) install
 RUN tar xf sqlite-autoconf-3430100.tar.gz && cd sqlite-autoconf-3430100 && ./configure --disable-shared --enable-static --prefix=/usr/local/$HOST --host=$HOST --build=$(dpkg-architecture -qDEB_BUILD_GNU_TYPE) && make -j$(nproc) install
 RUN tar xf zlib-1.3.1.tar.gz && cd zlib-1.3.1 && CC=$HOST-gcc AR=$HOST-ar LD=$HOST-ld RANLIB=$HOST-ranlib STRIP=$HOST-strip ./configure --prefix=/usr/local/$HOST --libdir=/usr/local/$HOST/lib --includedir=/usr/local/$HOST/include --static && make -j$(nproc) install
