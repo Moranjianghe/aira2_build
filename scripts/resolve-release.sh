@@ -49,9 +49,29 @@ should_build=true
 source_url=""
 
 if gh release view "$release_tag" --repo "$repository" >/dev/null 2>&1; then
-  should_build=false
-  echo "Release $release_tag already exists; skipping the build."
-else
+  existing_assets="$(gh release view "$release_tag" --repo "$repository" --json assets --jq '.assets[].name')"
+  missing_package_asset=false
+  for expected_asset in \
+    "windows-x86-64-v3-bt.zip" \
+    "windows-x86-64-v3-nobt.zip" \
+    "debian-12-x86-64-v2-bt.deb" \
+    "debian-12-x86-64-v2-nobt.deb" \
+    "debian-13-x86-64-v3-bt.deb" \
+    "debian-13-x86-64-v3-nobt.deb"; do
+    if ! grep -Fxq "$expected_asset" <<<"$existing_assets"; then
+      missing_package_asset=true
+      break
+    fi
+  done
+  if [[ "$missing_package_asset" == false ]]; then
+    should_build=false
+    echo "Release $release_tag already contains all packages; skipping the build."
+  else
+    echo "Release $release_tag exists but is missing packages; rebuilding to backfill them."
+  fi
+fi
+
+if [[ "$should_build" == true ]]; then
   archive_name="aria2-$version.tar.gz"
   if ! asset_url="$(jq -er --arg name "$archive_name" '.assets[] | select(.name == $name) | .browser_download_url' <<<"$release_json")"; then
     echo "Official release $tag does not contain $archive_name" >&2

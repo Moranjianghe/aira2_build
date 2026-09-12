@@ -35,17 +35,14 @@ x86-64-v3 包只适用于支持 AVX2 等对应指令集的设备；E5-2650 v2 �
 3. 并行构建六个目标。
 4. 将各包及其 SHA-256 文件发布到本仓库的 aria2-X.Y.Z Release。
 
-工作流只跟踪 release-X.Y.Z 格式的正式稳定版，不跟踪 master、预发布版或草稿版。如果对应的自定义 Release 已存在，则跳过构建。
+工作流只跟踪 release-X.Y.Z 格式的正式稳定版，不跟踪 master、预发布版或草稿版。如果对应的自定义 Release 已存在且已经包含六个目标包，则跳过构建；旧 Release 缺少包时会自动重建并补充资产。
 
 ## 本地构建
 
 GitHub Actions 会在公共 runner 上运行。Debian 构建直接使用对应的官方 Docker 镜像；Windows 构建使用仓库内的 docker/Dockerfile.mingw。
 
-每个发行包包含：
+Windows ZIP 包包含 `aria2c.exe`、`COPYING` 和 `BUILD-INFO.txt`；Debian `.deb` 包安装 `aria2c`、版权文件和 `BUILD-INFO.txt`。所有包均发布包级别的 `.sha256` 校验文件。
 
-- aria2c 或 aria2c.exe
-- COPYING
-- BUILD-INFO.txt
-- 包级别的 .sha256 校验文件
+Debian 构建发布可由 deb-get/apt 安装的 `.deb` 包，两个变体的内部包名均为 `aria2`。BitTorrent 版本使用 `X.Y.Z+custom1~bt`，无 BitTorrent 版本使用更高的 `X.Y.Z+custom1`；deb-get 的 `aria2` 定义固定选择无 BitTorrent 资产。Windows 发布 ZIP 包。
 
 BUILD-INFO.txt 会记录上游 tag、目标 ISA、BitTorrent 状态和完整编译参数。

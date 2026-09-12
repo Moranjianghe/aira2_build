@@ -25,7 +25,7 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y --no-install-recommends build-essential ca-certificates curl file gettext libcppunit-dev libc-ares-dev libexpat1-dev libssh2-1-dev libssl-dev libsqlite3-dev patch pkg-config zlib1g-dev
+apt-get install -y --no-install-recommends build-essential ca-certificates curl dpkg-dev file gettext libcppunit-dev libc-ares-dev libexpat1-dev libssh2-1-dev libssl-dev libsqlite3-dev patch pkg-config zlib1g-dev
 
 rm -rf "$build_root"
 mkdir -p "$build_root" "$output_dir"
@@ -83,11 +83,16 @@ grep -Fq "aria2 version $ARIA2_VERSION" "$build_root/version.txt"
 strip --strip-unneeded "$binary"
 file "$binary" | grep -Eq 'ELF 64-bit.*x86-64'
 
-package_dir="$build_root/package"
-rm -rf "$package_dir"
-mkdir -p "$package_dir"
-install -m 0755 "$binary" "$package_dir/aria2c"
-install -m 0644 "$source_dir/COPYING" "$package_dir/COPYING"
+if [[ "$BITTORRENT" == yes ]]; then
+  package_name=aria2
+  package_description='Custom aria2 build with BitTorrent support.'
+  package_version="$ARIA2_VERSION+custom1~bt"
+else
+  package_name=aria2
+  package_description='Custom aria2 build without BitTorrent support.'
+  package_version="$ARIA2_VERSION+custom1"
+fi
+build_info="$build_root/BUILD-INFO.txt"
 {
   printf 'aria2 upstream tag: %s\n' "$UPSTREAM_TAG"
   printf 'aria2 version: %s\n' "$ARIA2_VERSION"
@@ -97,11 +102,43 @@ install -m 0644 "$source_dir/COPYING" "$package_dir/COPYING"
   printf 'configure: ./configure %s\n' "${configure_args[*]}"
   printf '\naria2c --version:\n'
   cat "$build_root/version.txt"
-} > "$package_dir/BUILD-INFO.txt"
+} > "$build_info"
 
-archive_name="$ARTIFACT_NAME.tar.gz"
-tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='UTC 1970-01-01' -C "$package_dir" -czf "$output_dir/$archive_name" aria2c COPYING BUILD-INFO.txt
-(cd "$output_dir" && sha256sum "$archive_name" > "$archive_name.sha256")
+deb_root="$build_root/deb"
+mkdir -p "$deb_root/DEBIAN" "$deb_root/usr/bin" "$deb_root/usr/share/doc/$package_name"
+install -m 0755 "$binary" "$deb_root/usr/bin/aria2c"
+install -m 0644 "$source_dir/COPYING" "$deb_root/usr/share/doc/$package_name/copyright"
+install -m 0644 "$build_info" "$deb_root/usr/share/doc/$package_name/BUILD-INFO.txt"
+shlibdeps_root="$build_root/shlibdeps"
+mkdir -p "$shlibdeps_root/debian"
+{
+  printf 'Source: aria2-custom\n'
+  printf 'Section: net\n'
+  printf 'Priority: optional\n'
+  printf 'Maintainer: Moranjianghe <moranjianghe@users.noreply.github.com>\n'
+  printf 'Standards-Version: 4.6.0\n\n'
+  printf 'Package: %s\n' "$package_name"
+  printf 'Architecture: amd64\n'
+} > "$shlibdeps_root/debian/control"
+shlibs_depends="$(cd "$shlibdeps_root" && dpkg-shlibdeps -O "$binary" | sed -n 's/^shlibs:Depends=//p')"
+if [[ -z "$shlibs_depends" ]]; then
+  echo "Could not determine shared-library dependencies for $binary" >&2
+  exit 1
+fi
+{
+  printf 'Package: %s\n' "$package_name"
+  printf 'Version: %s\n' "$package_version"
+  printf 'Section: net\n'
+  printf 'Priority: optional\n'
+  printf 'Architecture: amd64\n'
+  printf 'Maintainer: Moranjianghe <moranjianghe@users.noreply.github.com>\n'
+  printf 'Depends: ca-certificates, %s\n' "$shlibs_depends"
+  printf 'Description: %s\n' "$package_description"
+  printf ' Custom build for the aria2 command-line download utility.\n'
+} > "$deb_root/DEBIAN/control"
+deb_archive_name="$ARTIFACT_NAME.deb"
+dpkg-deb --build --root-owner-group "$deb_root" "$output_dir/$deb_archive_name"
+(cd "$output_dir" && sha256sum "$deb_archive_name" > "$deb_archive_name.sha256")
 popd >/dev/null
 
 rm -rf "$build_root"
