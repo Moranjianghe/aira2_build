@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+trap 'status=$?; echo "::error::build-mingw.sh failed at line $LINENO: $BASH_COMMAND (exit $status)" >&2' ERR
 
 : "${ARIA2_VERSION:?ARIA2_VERSION is required}"
 : "${UPSTREAM_TAG:?UPSTREAM_TAG is required}"
@@ -13,6 +14,15 @@ build_root="/tmp/aria2-mingw-$ARTIFACT_NAME"
 jobs="${BUILD_JOBS:-$(nproc)}"
 host=x86_64-w64-mingw32
 prefix="/usr/local/$host"
+objdump_tool="$host-objdump"
+strip_tool="$host-strip"
+
+for command in "$host-g++" "$objdump_tool" "$strip_tool" file strings zip sha256sum; do
+  command -v "$command" >/dev/null || {
+    echo "Required command not found: $command" >&2
+    exit 1
+  }
+done
 
 case "$BITTORRENT" in
   yes) bittorrent_flag=--enable-bittorrent; gmp_flag=--with-libgmp; expected_bittorrent=yes ;;
@@ -79,11 +89,34 @@ if [[ ! -f "$binary" ]]; then
   echo "The MinGW build did not produce src/aria2c.exe" >&2
   exit 1
 fi
-file "$binary" | grep -Eq 'PE32\+ executable.*x86-64'
-objdump -f "$binary" | grep -Fq 'i386:x86-64'
-strings "$binary" | grep -Fq "aria2 version $ARIA2_VERSION"
-strip --strip-unneeded "$binary"
-file "$binary" | grep -Eq 'PE32\+ executable.*x86-64'
+file_output="$(file "$binary")"
+printf 'file: %s\n' "$file_output"
+if ! grep -Eq 'PE32\+ executable.*x86-64' <<<"$file_output"; then
+  echo "The MinGW output is not a 64-bit PE executable" >&2
+  exit 1
+fi
+
+objdump_output="$("$objdump_tool" -f "$binary")"
+printf '%s\n' "$objdump_output"
+if ! grep -F 'i386:x86-64' <<<"$objdump_output" >/dev/null; then
+  echo "The MinGW output has an unexpected architecture" >&2
+  exit 1
+fi
+
+# Do not use grep -q in a pipe while pipefail is enabled: grep may close the
+# pipe early and make strings exit with SIGPIPE even when the match exists.
+if ! strings "$binary" | grep -F "aria2 version $ARIA2_VERSION" >/dev/null; then
+  echo "The MinGW output does not contain the expected aria2 version" >&2
+  exit 1
+fi
+
+"$strip_tool" --strip-unneeded "$binary"
+file_output="$(file "$binary")"
+printf 'file after strip: %s\n' "$file_output"
+if ! grep -Eq 'PE32\+ executable.*x86-64' <<<"$file_output"; then
+  echo "The stripped MinGW output is not a 64-bit PE executable" >&2
+  exit 1
+fi
 
 package_dir="$build_root/package"
 rm -rf "$package_dir"
