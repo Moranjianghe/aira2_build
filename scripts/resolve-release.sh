@@ -1,32 +1,32 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+trap 'status=$?; echo "::error::resolve-release.sh failed at line $LINENO: $BASH_COMMAND (exit $status)" >&2' ERR
+
+for command in gh jq sha256sum; do
+  command -v "$command" >/dev/null || {
+    echo "Required command not found: $command" >&2
+    exit 1
+  }
+done
 
 requested_tag="${1:-}"
 repository="${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
 output_file="${GITHUB_OUTPUT:?GITHUB_OUTPUT is required}"
 workspace="${GITHUB_WORKSPACE:-$PWD}"
 source_dir="$workspace/source"
-api_headers=(
-  -H "Accept: application/vnd.github+json"
-  -H "X-GitHub-Api-Version: 2022-11-28"
-  -H "User-Agent: aira2-build"
-)
 
 if [[ -n "$requested_tag" ]]; then
   if [[ ! "$requested_tag" =~ ^release-[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     echo "upstream_tag must match release-X.Y.Z: $requested_tag" >&2
     exit 1
   fi
-  api_url="https://api.github.com/repos/aria2/aria2/releases/tags/$requested_tag"
+  api_path="repos/aria2/aria2/releases/tags/$requested_tag"
 else
-  api_url="https://api.github.com/repos/aria2/aria2/releases/latest"
+  api_path="repos/aria2/aria2/releases/latest"
 fi
 
-if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-  api_headers+=(-H "Authorization: Bearer $GITHUB_TOKEN")
-fi
-
-release_json="$(curl --fail --silent --show-error --location --retry 3 "${api_headers[@]}" "$api_url")"
+echo "Resolving official aria2 release from $api_path"
+release_json="$(gh api --header 'Accept: application/vnd.github+json' --header 'X-GitHub-Api-Version: 2022-11-28' "$api_path")"
 tag="$(jq -er '.tag_name' <<<"$release_json")"
 prerelease="$(jq -er '.prerelease' <<<"$release_json")"
 draft="$(jq -er '.draft' <<<"$release_json")"
@@ -50,22 +50,15 @@ if gh release view "$release_tag" --repo "$repository" >/dev/null 2>&1; then
   echo "Release $release_tag already exists; skipping the build."
 else
   archive_name="aria2-$version.tar.gz"
-  asset_url="$(jq -er --arg name "$archive_name" '.assets[] | select(.name == $name) | .url' <<<"$release_json" 2>/dev/null || true)"
-  asset_digest="$(jq -r --arg name "$archive_name" '.assets[] | select(.name == $name) | (.digest // "")' <<<"$release_json" 2>/dev/null || true)"
-  if [[ -z "$asset_url" ]]; then
-    asset_url="https://github.com/aria2/aria2/releases/download/$tag/$archive_name"
+  if ! asset_url="$(jq -er --arg name "$archive_name" '.assets[] | select(.name == $name) | .browser_download_url' <<<"$release_json")"; then
+    echo "Official release $tag does not contain $archive_name" >&2
+    exit 1
   fi
+  asset_digest="$(jq -r --arg name "$archive_name" '.assets[] | select(.name == $name) | (.digest // "")' <<<"$release_json")"
   source_url="$asset_url"
   mkdir -p "$source_dir"
   archive_path="$source_dir/$archive_name"
-  download_headers=(
-    -H "Accept: application/octet-stream"
-    -H "User-Agent: aira2-build"
-  )
-  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    download_headers+=(-H "Authorization: Bearer $GITHUB_TOKEN")
-  fi
-  curl --fail --silent --show-error --location --retry 3 "${download_headers[@]}" "$asset_url" -o "$archive_path"
+  gh release download "$tag" --repo aria2/aria2 --pattern "$archive_name" --dir "$source_dir" --clobber
 
   actual_digest="$(sha256sum "$archive_path" | awk '{print $1}')"
   if [[ -n "$asset_digest" ]]; then

@@ -27,7 +27,7 @@ jobs:
       release_tag: ${{ steps.resolve.outputs.release_tag }}
     steps:
       - name: Check out builder
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Resolve official stable release
         id: resolve
         env:
@@ -38,7 +38,7 @@ jobs:
         run: bash scripts/resolve-release.sh "$UPSTREAM_TAG_INPUT"
       - name: Upload source archive
         if: steps.resolve.outputs.should_build == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: aria2-source
           path: source/*.tar.gz
@@ -83,9 +83,9 @@ jobs:
             cpu_flags: -O3 -flto=auto -march=x86-64-v3
     steps:
       - name: Check out builder
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Download source archive
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: aria2-source
           path: source
@@ -113,7 +113,7 @@ jobs:
           docker pull "debian:$DEBIAN_VERSION"
           docker run --rm --user 0:0 --env ARIA2_VERSION --env UPSTREAM_TAG --env BITTORRENT --env CPU_FLAGS --env ARTIFACT_NAME --volume "$GITHUB_WORKSPACE:/workspace" "debian:$DEBIAN_VERSION" bash /workspace/scripts/build-debian.sh
       - name: Upload package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: build-${{ matrix.id }}
           path: dist/${{ matrix.id }}*
@@ -128,9 +128,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out builder
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Download built packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: build-*
           path: dist
