@@ -28,8 +28,11 @@ fi
 echo "Resolving official aria2 release from $api_path"
 release_json="$(gh api --header 'Accept: application/vnd.github+json' --header 'X-GitHub-Api-Version: 2022-11-28' "$api_path")"
 tag="$(jq -er '.tag_name' <<<"$release_json")"
-prerelease="$(jq -er '.prerelease' <<<"$release_json")"
-draft="$(jq -er '.draft' <<<"$release_json")"
+# jq -e returns exit code 1 for a valid JSON false value.  These fields are
+# expected to be false for a stable release, so normalize them to strings
+# without using -e.
+prerelease="$(jq -r 'if .prerelease == true then "true" else "false" end' <<<"$release_json")"
+draft="$(jq -r 'if .draft == true then "true" else "false" end' <<<"$release_json")"
 
 if [[ "$prerelease" == "true" || "$draft" == "true" ]]; then
   echo "Refusing to build a prerelease or draft: $tag" >&2
