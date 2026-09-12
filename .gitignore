@@ -1,0 +1,6 @@
+source/
+dist/
+build/
+.cache/
+.DS_Store
+*.swp

@@ -1,0 +1,8 @@
+diff --git a/src/OptionHandlerFactory.cc b/src/OptionHandlerFactory.cc
+--- a/src/OptionHandlerFactory.cc
++++ b/src/OptionHandlerFactory.cc
+@@ -439,3 +439,3 @@
+                                               TEXT_MAX_CONNECTION_PER_SERVER,
+-                                              "1", 1, 16, 'x'));
++                                              "1", 1, -1, 'x'));
+     op->addTag(TAG_BASIC);

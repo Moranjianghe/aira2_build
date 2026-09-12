@@ -1,0 +1,145 @@
+name: Build aria2 stable releases
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: Optional official aria2 tag, for example release-1.37.0
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aria2-release-builder
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    outputs:
+      should_build: ${{ steps.resolve.outputs.should_build }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+    steps:
+      - name: Check out builder
+        uses: actions/checkout@v4
+      - name: Resolve official stable release
+        id: resolve
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          UPSTREAM_TAG_INPUT: ${{ inputs.upstream_tag }}
+        run: bash scripts/resolve-release.sh "$UPSTREAM_TAG_INPUT"
+      - name: Upload source archive
+        if: steps.resolve.outputs.should_build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria2-source
+          path: source/*.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  build:
+    needs: resolve
+    if: needs.resolve.outputs.should_build == 'true'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: windows-x86-64-v3-bt
+            builder: mingw
+            bittorrent: 'yes'
+            cpu_flags: -O3 -flto=auto -march=x86-64-v3
+          - id: windows-x86-64-v3-nobt
+            builder: mingw
+            bittorrent: 'no'
+            cpu_flags: -O3 -flto=auto -march=x86-64-v3
+          - id: debian-12-x86-64-v2-bt
+            builder: debian
+            debian: '12'
+            bittorrent: 'yes'
+            cpu_flags: -O3 -flto=auto -march=x86-64-v2
+          - id: debian-12-x86-64-v2-nobt
+            builder: debian
+            debian: '12'
+            bittorrent: 'no'
+            cpu_flags: -O3 -flto=auto -march=x86-64-v2
+          - id: debian-13-x86-64-v3-bt
+            builder: debian
+            debian: '13'
+            bittorrent: 'yes'
+            cpu_flags: -O3 -flto=auto -march=x86-64-v3
+          - id: debian-13-x86-64-v3-nobt
+            builder: debian
+            debian: '13'
+            bittorrent: 'no'
+            cpu_flags: -O3 -flto=auto -march=x86-64-v3
+    steps:
+      - name: Check out builder
+        uses: actions/checkout@v4
+      - name: Download source archive
+        uses: actions/download-artifact@v4
+        with:
+          name: aria2-source
+          path: source
+      - name: Build Windows package
+        if: matrix.builder == 'mingw'
+        env:
+          ARIA2_VERSION: ${{ needs.resolve.outputs.version }}
+          UPSTREAM_TAG: ${{ needs.resolve.outputs.tag }}
+          BITTORRENT: ${{ matrix.bittorrent }}
+          CPU_FLAGS: ${{ matrix.cpu_flags }}
+          ARTIFACT_NAME: ${{ matrix.id }}
+        run: |
+          docker build --file docker/Dockerfile.mingw --tag local/aria2-mingw .
+          docker run --rm --user 0:0 --env ARIA2_VERSION --env UPSTREAM_TAG --env BITTORRENT --env CPU_FLAGS --env ARTIFACT_NAME --volume "$GITHUB_WORKSPACE:/workspace" local/aria2-mingw bash /workspace/scripts/build-mingw.sh
+      - name: Build Debian package
+        if: matrix.builder == 'debian'
+        env:
+          ARIA2_VERSION: ${{ needs.resolve.outputs.version }}
+          UPSTREAM_TAG: ${{ needs.resolve.outputs.tag }}
+          BITTORRENT: ${{ matrix.bittorrent }}
+          CPU_FLAGS: ${{ matrix.cpu_flags }}
+          ARTIFACT_NAME: ${{ matrix.id }}
+          DEBIAN_VERSION: ${{ matrix.debian }}
+        run: |
+          docker pull "debian:$DEBIAN_VERSION"
+          docker run --rm --user 0:0 --env ARIA2_VERSION --env UPSTREAM_TAG --env BITTORRENT --env CPU_FLAGS --env ARTIFACT_NAME --volume "$GITHUB_WORKSPACE:/workspace" "debian:$DEBIAN_VERSION" bash /workspace/scripts/build-debian.sh
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.id }}
+          path: dist/${{ matrix.id }}*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs:
+      - resolve
+      - build
+    if: needs.resolve.outputs.should_build == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out builder
+        uses: actions/checkout@v4
+      - name: Download built packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: build-*
+          path: dist
+          merge-multiple: true
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
+          ARIA2_VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          gh release create "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" --title "aria2 $ARIA2_VERSION custom builds" --target "$GITHUB_SHA" --notes $'Automated builds from the official aria2 '$ARIA2_VERSION$' stable release.\n\nTargets: Windows x86-64-v3, Debian 12 x86-64-v2, Debian 13 x86-64-v3. Each target has BitTorrent and no-BitTorrent variants.'
