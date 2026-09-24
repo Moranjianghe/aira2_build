@@ -1,48 +1,60 @@
-# aria2 自定义构建
+# aria2 自訂建置
 
-这个仓库使用 GitHub Actions 跟踪 aria2 官方稳定版发布，并为个人设备构建六个发行包：
+這個倉庫使用 GitHub Actions 追蹤 aria2 官方穩定版，並為個人設備建置六個套件：
 
-- Windows x86-64-v3：BitTorrent 版、无 BitTorrent 版
-- Debian 12 x86-64-v2：BitTorrent 版、无 BitTorrent 版
-- Debian 13 x86-64-v3：BitTorrent 版、无 BitTorrent 版
+- Windows x86-64-v3：BitTorrent 版、無 BitTorrent 版
+- Debian 12 x86-64-v2：BitTorrent 版、無 BitTorrent 版
+- Debian 13 x86-64-v3：BitTorrent 版、無 BitTorrent 版
 
-目标对应的设备：
+目標設備：
 
-- Windows x86-64-v3：AMD Ryzen 5 7500F 本机
-- Debian 13 x86-64-v3：第 11 代 Intel 笔记本
+- Windows x86-64-v3：AMD Ryzen 5 7500F 本機
+- Debian 13 x86-64-v3：第 11 代 Intel 筆記型電腦
 - Debian 12 x86-64-v2：Intel Xeon E5-2650 v2 VPS
 
-x86-64-v3 包只适用于支持 AVX2 等对应指令集的设备；E5-2650 v2 使用 v2 是因为它不支持 v3 所需的 AVX2。
+x86-64-v3 套件只適用於支援 AVX2 等對應指令集的設備；E5-2650 v2 不支援 v3 所需的 AVX2，因此使用 v2。
 
-## 已确认的自定义内容
+## 自訂內容
 
-- 将 max-connection-per-server 的内部最大值从 16 改为 -1，表示不设上限；默认值仍然是 1。
-- 两个功能变体分别使用 --enable-bittorrent 和 --disable-bittorrent。
-- Windows 使用 MinGW-w64、WinTLS 和静态链接。
-- Debian 使用 OpenSSL 和动态链接，默认 CA bundle 为 /etc/ssl/certs/ca-certificates.crt。
-- 编译器参数使用 -O3 -flto=auto，并按目标分别使用 x86-64-v2 或 x86-64-v3。
+- 將 `max-connection-per-server` 的內部最大值從 16 改為 -1，表示不設上限；預設值仍為 1。
+- 兩個功能變體分別使用 `--enable-bittorrent` 和 `--disable-bittorrent`。
+- Windows 使用 MinGW-w64、WinTLS 和靜態連結。
+- Debian 使用 OpenSSL 和動態連結，預設 CA bundle 為 `/etc/ssl/certs/ca-certificates.crt`。
+- 編譯器參數使用 `-O3 -flto=auto`，並按目標分別使用 x86-64-v2 或 x86-64-v3。
 
-没有加入 -march=native，因为构建运行在 GitHub 公共 runner 上；也没有加入尚未确认的下载行为改动，例如调整 min-split-size、默认分片数或重试策略。
+沒有加入 `-march=native`，因為建置執行在 GitHub 公共 runner 上；也沒有更改尚未確認的下載行為，例如最小分片大小、預設分片數或重試策略。
 
-## 发布方式
+## 觸發與發佈
 
-工作流 .github/workflows/release.yml 每天定时检查 aria2 官方 GitHub Releases，也可以手动运行并填写 upstream_tag，例如 release-1.37.0。
+工作流 `.github/workflows/release.yml` 每 6 小時於 UTC 00:17、06:17、12:17、18:17 查詢 aria2 官方 GitHub Releases。推送建置腳本、補丁、Dockerfile 或工作流到 `main` 也會執行檢查；亦可手動執行並選填 `upstream_tag`，例如 `release-1.37.0`。推送後的自動建置仍須先在 `scripts/build-config.sh` 提高 `BUILD_REVISION`，否則已有完整資產的相同修訂版會略過建置。
 
-检测到新的正式稳定版后，工作流会：
+工作流追蹤官方 `release-X.Y.Z` 格式的最新正式穩定版。上游主分支提交、測試版與草稿版不會觸發建置；GitHub 也不會將另一個倉庫的 Release 事件直接送到本倉庫。排程可能延遲；每次檢查的穩定版、目標 Release 與略過原因會顯示在 Actions 執行摘要中。
 
-1. 从 aria2 官方 Release 下载对应的源码压缩包并校验 GitHub 提供的 digest（如果有）。
-2. 应用 patches/unlimited-max-connection-per-server.patch。
-3. 并行构建六个目标。
-4. 将各包及其 SHA-256 文件发布到本仓库的 aria2-X.Y.Z Release。
+偵測到尚未建置的正式穩定版或新的建置修訂版後，工作流會：
 
-工作流只跟踪 release-X.Y.Z 格式的正式稳定版，不跟踪 master、预发布版或草稿版。如果对应的自定义 Release 已存在且已经包含六个目标包，则跳过构建；旧 Release 缺少包时会自动重建并补充资产。
+1. 從 aria2 官方 Release 下載原始碼壓縮檔，並檢查 GitHub 提供的 digest（如果有）。
+2. 套用 `patches/unlimited-max-connection-per-server.patch`。
+3. 平行建置六個目標。
+4. 將套件及其 SHA-256 檔案發佈到本倉庫的 `aria2-X.Y.Z-customN` Release。
 
-## 本地构建
+`N` 取自 `scripts/build-config.sh` 的 `BUILD_REVISION`。需要在同一個上游穩定版重建時提高該值，保留舊修訂版資產供回溯。如果目標 Release 已包含六個套件及各自的 SHA-256 檔案，就略過建置；缺少資產則重建補齊。最新上游穩定版的自訂 Release 會標記為 GitHub 的 Latest，供 deb-get 選取。
 
-GitHub Actions 会在公共 runner 上运行。Debian 构建直接使用对应的官方 Docker 镜像；Windows 构建使用仓库内的 docker/Dockerfile.mingw。
+## 套件與安裝
 
-Windows ZIP 包包含 `aria2c.exe`、`COPYING` 和 `BUILD-INFO.txt`；Debian `.deb` 包安装 `aria2c`、版权文件和 `BUILD-INFO.txt`。所有包均发布包级别的 `.sha256` 校验文件。
+GitHub Actions 在公共 runner 上執行。Debian 建置使用對應的官方 Docker 映像檔；Windows 建置使用 `docker/Dockerfile.mingw`。
 
-Debian 构建发布可由 deb-get/apt 安装的 `.deb` 包，两个变体的内部包名均为 `aria2`。BitTorrent 版本使用 `X.Y.Z+custom1~bt`，无 BitTorrent 版本使用更高的 `X.Y.Z+custom1`；deb-get 的 `aria2` 定义固定选择无 BitTorrent 资产。Windows 发布 ZIP 包。
+Windows ZIP 包含 `aria2c.exe`、`COPYING` 和 `BUILD-INFO.txt`；Debian `.deb` 安裝 `aria2c`、授權檔案和 `BUILD-INFO.txt`。所有套件均附有 `.sha256` 檔案。
 
-BUILD-INFO.txt 会记录上游 tag、目标 ISA、BitTorrent 状态和完整编译参数。
+兩個 Debian 變體的內部套件名均為 `aria2`。BitTorrent 版使用 `X.Y.Z+zzcustomN~bt`，無 BitTorrent 版使用較高的 `X.Y.Z+zzcustomN`；這兩個版本在相同上游版本下也高於 Debian 的 `X.Y.Z+debian-*`。deb-get 的 `aria2` 定義選取無 BitTorrent 資產。Windows 發佈 ZIP 包。
+
+新 Release 發佈且 deb-get 定義更新後，執行 `deb-get update --repos-only`、`deb-get install aria2`，再以 `dpkg-query -W aria2` 檢查版本。若要避免下一個上游版本的 Debian 官方包在自訂版發佈前搶先升級，可以在本機 `/etc/apt/preferences.d/aria2-custom.pref` 加入：
+
+```text
+Package: aria2
+Pin: version *custom*
+Pin-Priority: 1001
+```
+
+這只對已安裝或可用的自訂版本生效；首次安裝仍須使用 deb-get。啟用後，官方 aria2 更新也會被擋下，請持續檢查自訂版的上游更新。
+
+`BUILD-INFO.txt` 會記錄上游 tag、建置修訂號、目標 ISA、BitTorrent 狀態和完整編譯參數。

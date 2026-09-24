@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/build-config.sh"
 
 : "${ARIA2_VERSION:?ARIA2_VERSION is required}"
 : "${UPSTREAM_TAG:?UPSTREAM_TAG is required}"
@@ -86,16 +87,18 @@ file "$binary" | grep -Eq 'ELF 64-bit.*x86-64'
 if [[ "$BITTORRENT" == yes ]]; then
   package_name=aria2
   package_description='Custom aria2 build with BitTorrent support.'
-  package_version="$ARIA2_VERSION+custom1~bt"
+  package_version="$ARIA2_VERSION+zzcustom$BUILD_REVISION~bt"
 else
   package_name=aria2
   package_description='Custom aria2 build without BitTorrent support.'
-  package_version="$ARIA2_VERSION+custom1"
+  package_version="$ARIA2_VERSION+zzcustom$BUILD_REVISION"
 fi
 build_info="$build_root/BUILD-INFO.txt"
 {
   printf 'aria2 upstream tag: %s\n' "$UPSTREAM_TAG"
   printf 'aria2 version: %s\n' "$ARIA2_VERSION"
+  printf 'build revision: %s\n' "$BUILD_REVISION"
+  printf 'Debian package version: %s\n' "$package_version"
   printf 'target: Debian x86-64\n'
   printf 'cpu baseline: %s\n' "$CPU_FLAGS"
   printf 'bittorrent: %s\n' "$BITTORRENT"

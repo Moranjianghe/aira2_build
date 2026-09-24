@@ -2,7 +2,16 @@ name: Build aria2 stable releases
 
 on:
   schedule:
-    - cron: '17 3 * * *'
+    - cron: '17 */6 * * *'
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/release.yml
+      - scripts/**
+      - docker/**
+      - patches/**
+      - tests/**
   workflow_dispatch:
     inputs:
       upstream_tag:
@@ -25,9 +34,12 @@ jobs:
       tag: ${{ steps.resolve.outputs.tag }}
       version: ${{ steps.resolve.outputs.version }}
       release_tag: ${{ steps.resolve.outputs.release_tag }}
+      is_latest_upstream: ${{ steps.resolve.outputs.is_latest_upstream }}
     steps:
       - name: Check out builder
         uses: actions/checkout@v5
+      - name: Check release selection and version ordering
+        run: bash tests/test-release-resolution.sh
       - name: Resolve official stable release
         id: resolve
         env:
@@ -141,9 +153,14 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
           ARIA2_VERSION: ${{ needs.resolve.outputs.version }}
+          IS_LATEST_UPSTREAM: ${{ needs.resolve.outputs.is_latest_upstream }}
         run: |
+          source scripts/build-config.sh
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+            if [[ "$IS_LATEST_UPSTREAM" == true ]]; then
+              gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --latest
+            fi
           else
-            gh release create "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" --title "aria2 $ARIA2_VERSION custom builds" --target "$GITHUB_SHA" --notes $'Automated builds from the official aria2 '$ARIA2_VERSION$' stable release.\n\nTargets: Windows x86-64-v3, Debian 12 x86-64-v2, Debian 13 x86-64-v3. Each target has BitTorrent and no-BitTorrent variants.'
+            gh release create "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" --latest="$IS_LATEST_UPSTREAM" --title "aria2 $ARIA2_VERSION custom build r$BUILD_REVISION" --target "$GITHUB_SHA" --notes $'Automated builds from the official aria2 '$ARIA2_VERSION$' stable release.\n\nTargets: Windows x86-64-v3, Debian 12 x86-64-v2, Debian 13 x86-64-v3. Each target has BitTorrent and no-BitTorrent variants.'
           fi

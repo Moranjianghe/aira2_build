@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/build-config.sh"
 trap 'status=$?; echo "::error::build-mingw.sh failed at line $LINENO: $BASH_COMMAND (exit $status)" >&2' ERR
 
 : "${ARIA2_VERSION:?ARIA2_VERSION is required}"
@@ -127,6 +128,7 @@ install -m 0644 "$source_dir/COPYING" "$package_dir/COPYING"
 {
   printf 'aria2 upstream tag: %s\n' "$UPSTREAM_TAG"
   printf 'aria2 version: %s\n' "$ARIA2_VERSION"
+  printf 'build revision: %s\n' "$BUILD_REVISION"
   printf 'target: Windows x86-64\n'
   printf 'cpu baseline: %s\n' "$CPU_FLAGS"
   printf 'bittorrent: %s\n' "$BITTORRENT"

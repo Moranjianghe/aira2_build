@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/build-config.sh"
 trap 'status=$?; echo "::error::resolve-release.sh failed at line $LINENO: $BASH_COMMAND (exit $status)" >&2' ERR
 
 for command in gh jq sha256sum; do
@@ -28,6 +29,12 @@ fi
 echo "Resolving official aria2 release from $api_path"
 release_json="$(gh api --header 'Accept: application/vnd.github+json' --header 'X-GitHub-Api-Version: 2022-11-28' "$api_path")"
 tag="$(jq -er '.tag_name' <<<"$release_json")"
+if [[ -n "$requested_tag" ]]; then
+  latest_json="$(gh api --header 'Accept: application/vnd.github+json' --header 'X-GitHub-Api-Version: 2022-11-28' 'repos/aria2/aria2/releases/latest')"
+  latest_tag="$(jq -er '.tag_name' <<<"$latest_json")"
+else
+  latest_tag="$tag"
+fi
 # jq -e returns exit code 1 for a valid JSON false value.  These fields are
 # expected to be false for a stable release, so normalize them to strings
 # without using -e.
@@ -44,31 +51,47 @@ if [[ ! "$tag" =~ ^release-[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 
 version="${tag#release-}"
-release_tag="aria2-$version"
+release_tag="aria2-$version-custom$BUILD_REVISION"
+if [[ "$tag" == "$latest_tag" ]]; then
+  is_latest_upstream=true
+else
+  is_latest_upstream=false
+fi
 should_build=true
 source_url=""
+build_reason=""
 
 if gh release view "$release_tag" --repo "$repository" >/dev/null 2>&1; then
   existing_assets="$(gh release view "$release_tag" --repo "$repository" --json assets --jq '.assets[].name')"
   missing_package_asset=false
-  for expected_asset in \
+  for package_asset in \
     "windows-x86-64-v3-bt.zip" \
     "windows-x86-64-v3-nobt.zip" \
     "debian-12-x86-64-v2-bt.deb" \
     "debian-12-x86-64-v2-nobt.deb" \
     "debian-13-x86-64-v3-bt.deb" \
     "debian-13-x86-64-v3-nobt.deb"; do
-    if ! grep -Fxq "$expected_asset" <<<"$existing_assets"; then
-      missing_package_asset=true
+    for expected_asset in "$package_asset" "$package_asset.sha256"; do
+      if ! grep -Fxq "$expected_asset" <<<"$existing_assets"; then
+        missing_package_asset=true
+        break
+      fi
+    done
+    if [[ "$missing_package_asset" == true ]]; then
       break
     fi
   done
   if [[ "$missing_package_asset" == false ]]; then
     should_build=false
-    echo "Release $release_tag already contains all packages; skipping the build."
+    build_reason="Release $release_tag already contains all six packages and checksums."
+    echo "$build_reason Skipping the build."
   else
-    echo "Release $release_tag exists but is missing packages; rebuilding to backfill them."
+    build_reason="Release $release_tag is incomplete; rebuilding to backfill assets."
+    echo "$build_reason"
   fi
+else
+  build_reason="Release $release_tag does not exist; building it."
+  echo "$build_reason"
 fi
 
 if [[ "$should_build" == true ]]; then
@@ -98,6 +121,17 @@ fi
   printf 'tag=%s\n' "$tag"
   printf 'version=%s\n' "$version"
   printf 'release_tag=%s\n' "$release_tag"
+  printf 'is_latest_upstream=%s\n' "$is_latest_upstream"
   printf 'source_url=%s\n' "$source_url"
   printf 'should_build=%s\n' "$should_build"
 } >> "$output_file"
+
+if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+  {
+    printf '### aria2 stable release check\n\n'
+    printf -- '- Upstream stable release: `%s`\n' "$tag"
+    printf -- '- Build release: `%s`\n' "$release_tag"
+    printf -- '- Result: %s\n' "$build_reason"
+    printf -- '- Build required: `%s`\n' "$should_build"
+  } >> "$GITHUB_STEP_SUMMARY"
+fi
