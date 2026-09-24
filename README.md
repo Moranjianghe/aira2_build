@@ -30,6 +30,8 @@ x86-64-v3 套件只適用於支援 AVX2 等對應指令集的設備；E5-2650 v2
 
 工作流追蹤官方 `release-X.Y.Z` 格式的最新正式穩定版。上游主分支提交、測試版與草稿版不會觸發建置；GitHub 也不會將另一個倉庫的 Release 事件直接送到本倉庫。排程可能延遲；每次檢查的穩定版、目標 Release 與略過原因會顯示在 Actions 執行摘要中。
 
+GitHub [可能在公開倉庫 60 天沒有活動後停用排程](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)。若 Actions 頁面顯示工作流已停用，須手動重新啟用；僅靠此倉庫的排程無法保證多年無人維護仍自動追蹤上游。
+
 偵測到尚未建置的正式穩定版或新的建置修訂版後，工作流會：
 
 1. 從 aria2 官方 Release 下載原始碼壓縮檔，並檢查 GitHub 提供的 digest（如果有）。
