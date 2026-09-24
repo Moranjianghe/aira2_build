@@ -47,14 +47,14 @@ Windows ZIP 包含 `aria2c.exe`、`COPYING` 和 `BUILD-INFO.txt`；Debian `.deb`
 
 兩個 Debian 變體的內部套件名均為 `aria2`。BitTorrent 版使用 `X.Y.Z+zzcustomN~bt`，無 BitTorrent 版使用較高的 `X.Y.Z+zzcustomN`；這兩個版本在相同上游版本下也高於 Debian 的 `X.Y.Z+debian-*`。deb-get 的 `aria2` 定義選取無 BitTorrent 資產。Windows 發佈 ZIP 包。
 
-新 Release 發佈且 deb-get 定義更新後，執行 `deb-get update --repos-only`、`deb-get install aria2`，再以 `dpkg-query -W aria2` 檢查版本。若要避免下一個上游版本的 Debian 官方包在自訂版發佈前搶先升級，可以在本機 `/etc/apt/preferences.d/aria2-custom.pref` 加入：
+新 Release 發佈且 deb-get 定義更新後，執行 `deb-get update --repos-only`、`deb-get install aria2`，再以 `dpkg-query -W aria2` 檢查版本。若要避免 Debian 官方包在自訂版發佈前搶先升級，可以在本機 `/etc/apt/preferences.d/aria2-custom.pref` 加入：
 
 ```text
 Package: aria2
-Pin: version *custom*
-Pin-Priority: 1001
+Pin: release o=Debian
+Pin-Priority: -1
 ```
 
-這只對已安裝或可用的自訂版本生效；首次安裝仍須使用 deb-get。啟用後，官方 aria2 更新也會被擋下，請持續檢查自訂版的上游更新。
+這只阻擋 Debian 軟體來源提供的 `aria2`，不影響手動安裝自訂 `.deb`。僅提高 `*custom*` 版本優先級無法保護只存在於本機安裝狀態的版本。啟用後，官方 aria2 更新也會被擋下，請持續檢查自訂版的上游更新。以 `apt-cache policy aria2` 確認候選版仍是已安裝的自訂版。
 
 `BUILD-INFO.txt` 會記錄上游 tag、建置修訂號、目標 ISA、BitTorrent 狀態和完整編譯參數。
