@@ -70,7 +70,9 @@ for package_asset in \
   debian-12-x86-64-v2-bt.deb \
   debian-12-x86-64-v2-nobt.deb \
   debian-13-x86-64-v3-bt.deb \
-  debian-13-x86-64-v3-nobt.deb; do
+  debian-13-x86-64-v3-nobt.deb \
+  arch-x86-64-v3-bt.pkg.tar.zst \
+  arch-x86-64-v3-nobt.pkg.tar.zst; do
   complete_assets+="$package_asset"$'\n'"$package_asset.sha256"$'\n'
 done
 
@@ -88,10 +90,21 @@ export MOCK_ASSETS="$complete_assets"
 reset_outputs
 bash "$repo_root/scripts/resolve-release.sh"
 expect_output 'should_build=false'
-grep -Fq 'already contains all six packages and checksums' "$GITHUB_STEP_SUMMARY"
+grep -Fq 'already contains all eight packages and checksums' "$GITHUB_STEP_SUMMARY"
 
 # Missing checksums must also cause a rebuild.
 export MOCK_ASSETS="${complete_assets/debian-13-x86-64-v3-nobt.deb.sha256/}"
+reset_outputs
+bash "$repo_root/scripts/resolve-release.sh"
+expect_output 'should_build=true'
+
+# Missing Arch package or checksum must cause a rebuild.
+export MOCK_ASSETS="${complete_assets/arch-x86-64-v3-bt.pkg.tar.zst/}"
+reset_outputs
+bash "$repo_root/scripts/resolve-release.sh"
+expect_output 'should_build=true'
+
+export MOCK_ASSETS="${complete_assets/arch-x86-64-v3-nobt.pkg.tar.zst.sha256/}"
 reset_outputs
 bash "$repo_root/scripts/resolve-release.sh"
 expect_output 'should_build=true'
@@ -110,7 +123,11 @@ bash "$repo_root/scripts/resolve-release.sh"
 expect_output "release_tag=aria2-1.38.0-custom$BUILD_REVISION"
 expect_output 'is_latest_upstream=true'
 
-dpkg --compare-versions "1.37.0+zzcustom$BUILD_REVISION" gt '1.37.0+debian-3'
-dpkg --compare-versions "1.37.0+zzcustom$BUILD_REVISION~bt" lt "1.37.0+zzcustom$BUILD_REVISION"
+if command -v dpkg >/dev/null 2>&1; then
+  dpkg --compare-versions "1.37.0+zzcustom$BUILD_REVISION" gt '1.37.0+debian-3'
+  dpkg --compare-versions "1.37.0+zzcustom$BUILD_REVISION~bt" lt "1.37.0+zzcustom$BUILD_REVISION"
+else
+  printf 'Skipping Debian version ordering checks: dpkg is unavailable.\n'
+fi
 
-printf 'Release resolution and Debian version ordering checks passed.\n'
+printf 'Release resolution checks passed.\n'

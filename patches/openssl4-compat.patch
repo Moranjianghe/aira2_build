@@ -1,0 +1,55 @@
+--- a/src/LibsslTLSSession.cc
++++ b/src/LibsslTLSSession.cc
+@@ -261,12 +261,15 @@
+       size_t n = sk_GENERAL_NAME_num(altNames);
+       for (size_t i = 0; i < n; ++i) {
+         const GENERAL_NAME* altName = sk_GENERAL_NAME_value(altNames, i);
+-        if (altName->type == GEN_DNS) {
+-          auto name = ASN1_STRING_get0_data(altName->d.ia5);
++        int altNameType = GEN_OTHERNAME;
++        const void* altNameData = GENERAL_NAME_get0_value(altName, &altNameType);
++        if (altNameType == GEN_DNS) {
++          const auto* dnsName = static_cast<const ASN1_IA5STRING*>(altNameData);
++          auto name = ASN1_STRING_get0_data(dnsName);
+           if (!name) {
+             continue;
+           }
+-          size_t len = ASN1_STRING_length(altName->d.ia5);
++          size_t len = ASN1_STRING_length(dnsName);
+           if (len == 0) {
+             continue;
+           }
+@@ -278,18 +281,20 @@
+           }
+           dnsNames.push_back(std::string(name, name + len));
+         }
+-        else if (altName->type == GEN_IPADD) {
+-          const unsigned char* ipAddr = altName->d.iPAddress->data;
++        else if (altNameType == GEN_IPADD) {
++          const auto* ipAddrString =
++              static_cast<const ASN1_OCTET_STRING*>(altNameData);
++          const unsigned char* ipAddr = ASN1_STRING_get0_data(ipAddrString);
+           if (!ipAddr) {
+             continue;
+           }
+-          size_t len = altName->d.iPAddress->length;
++          size_t len = ASN1_STRING_length(ipAddrString);
+           ipAddrs.push_back(
+               std::string(reinterpret_cast<const char*>(ipAddr), len));
+         }
+       }
+     }
+-    X509_NAME* subjectName = X509_get_subject_name(peerCert);
++    const X509_NAME* subjectName = X509_get_subject_name(peerCert);
+     if (!subjectName) {
+       handshakeErr = "could not get X509 name object from the certificate.";
+       return TLS_ERR_ERROR;
+@@ -301,7 +306,7 @@
+       if (lastpos == -1) {
+         break;
+       }
+-      X509_NAME_ENTRY* entry = X509_NAME_get_entry(subjectName, lastpos);
++      const X509_NAME_ENTRY* entry = X509_NAME_get_entry(subjectName, lastpos);
+       unsigned char* out;
+       int outlen = ASN1_STRING_to_UTF8(&out, X509_NAME_ENTRY_get_data(entry));
+       if (outlen < 0) {

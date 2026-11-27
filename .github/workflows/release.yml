@@ -93,6 +93,14 @@ jobs:
             debian: '13'
             bittorrent: 'no'
             cpu_flags: -O3 -flto=auto -march=x86-64-v3
+          - id: arch-x86-64-v3-bt
+            builder: arch
+            bittorrent: 'yes'
+            cpu_flags: -O3 -flto=auto -march=x86-64-v3
+          - id: arch-x86-64-v3-nobt
+            builder: arch
+            bittorrent: 'no'
+            cpu_flags: -O3 -flto=auto -march=x86-64-v3
     steps:
       - name: Check out builder
         uses: actions/checkout@v5
@@ -124,6 +132,17 @@ jobs:
         run: |
           docker pull "debian:$DEBIAN_VERSION"
           docker run --rm --user 0:0 --env ARIA2_VERSION --env UPSTREAM_TAG --env BITTORRENT --env CPU_FLAGS --env ARTIFACT_NAME --volume "$GITHUB_WORKSPACE:/workspace" "debian:$DEBIAN_VERSION" bash /workspace/scripts/build-debian.sh
+      - name: Build Arch Linux package
+        if: matrix.builder == 'arch'
+        env:
+          ARIA2_VERSION: ${{ needs.resolve.outputs.version }}
+          UPSTREAM_TAG: ${{ needs.resolve.outputs.tag }}
+          BITTORRENT: ${{ matrix.bittorrent }}
+          CPU_FLAGS: ${{ matrix.cpu_flags }}
+          ARTIFACT_NAME: ${{ matrix.id }}
+        run: |
+          docker build --file docker/Dockerfile.arch --tag local/aria2-arch .
+          docker run --rm --user 0:0 --env ARIA2_VERSION --env UPSTREAM_TAG --env BITTORRENT --env CPU_FLAGS --env ARTIFACT_NAME --volume "$GITHUB_WORKSPACE:/workspace" local/aria2-arch bash /workspace/scripts/build-arch.sh
       - name: Upload package
         uses: actions/upload-artifact@v6
         with:
@@ -162,5 +181,5 @@ jobs:
               gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --latest
             fi
           else
-            gh release create "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" --latest="$IS_LATEST_UPSTREAM" --title "aria2 $ARIA2_VERSION custom build r$BUILD_REVISION" --target "$GITHUB_SHA" --notes $'Automated builds from the official aria2 '$ARIA2_VERSION$' stable release.\n\nTargets: Windows x86-64-v3, Debian 12 x86-64-v2, Debian 13 x86-64-v3. Each target has BitTorrent and no-BitTorrent variants.'
+            gh release create "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" --latest="$IS_LATEST_UPSTREAM" --title "aria2 $ARIA2_VERSION custom build r$BUILD_REVISION" --target "$GITHUB_SHA" --notes $'Automated builds from the official aria2 '$ARIA2_VERSION$' stable release.\n\nTargets: Windows x86-64-v3, Debian 12 x86-64-v2, Debian 13 x86-64-v3, Arch Linux x86-64-v3. Each target has BitTorrent and no-BitTorrent variants.'
           fi
