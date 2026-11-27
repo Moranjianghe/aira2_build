@@ -70,7 +70,9 @@ if gh release view "$release_tag" --repo "$repository" >/dev/null 2>&1; then
     "debian-12-x86-64-v2-bt.deb" \
     "debian-12-x86-64-v2-nobt.deb" \
     "debian-13-x86-64-v3-bt.deb" \
-    "debian-13-x86-64-v3-nobt.deb"; do
+    "debian-13-x86-64-v3-nobt.deb" \
+    "arch-x86-64-v3-bt.pkg.tar.zst" \
+    "arch-x86-64-v3-nobt.pkg.tar.zst"; do
     for expected_asset in "$package_asset" "$package_asset.sha256"; do
       if ! grep -Fxq "$expected_asset" <<<"$existing_assets"; then
         missing_package_asset=true
@@ -83,7 +85,7 @@ if gh release view "$release_tag" --repo "$repository" >/dev/null 2>&1; then
   done
   if [[ "$missing_package_asset" == false ]]; then
     should_build=false
-    build_reason="Release $release_tag already contains all six packages and checksums."
+    build_reason="Release $release_tag already contains all eight packages and checksums."
     echo "$build_reason Skipping the build."
   else
     build_reason="Release $release_tag is incomplete; rebuilding to backfill assets."

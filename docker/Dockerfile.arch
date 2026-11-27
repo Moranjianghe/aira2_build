@@ -1,0 +1,7 @@
+FROM archlinux:base-devel
+
+ENV LANG=C.UTF-8
+WORKDIR /workspace
+
+RUN pacman -Syu --noconfirm --needed ca-certificates c-ares cppunit expat file gettext libarchive libssh2 openssl patch pkgconf shadow sqlite zlib zstd && \
+    pacman -Scc --noconfirm

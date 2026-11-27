@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/build-config.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/build-linux-common.sh"
 
 : "${ARIA2_VERSION:?ARIA2_VERSION is required}"
 : "${UPSTREAM_TAG:?UPSTREAM_TAG is required}"
@@ -8,9 +9,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/build-config.sh"
 : "${CPU_FLAGS:?CPU_FLAGS is required}"
 : "${ARTIFACT_NAME:?ARTIFACT_NAME is required}"
 
-output_dir="${OUTPUT_DIR:-/workspace/dist}"
 source_archive="/workspace/source/aria2-$ARIA2_VERSION.tar.gz"
-build_root="/tmp/aria2-debian-$ARTIFACT_NAME"
+patch_file=/workspace/patches/unlimited-max-connection-per-server.patch
+output_dir="${OUTPUT_DIR:-/workspace/dist}"
+common_file="$(dirname "${BASH_SOURCE[0]}")/build-linux-common.sh"
+cache_key="$(aria2_linux_build_cache_key "$CPU_FLAGS" "$BITTORRENT" "$source_archive" "$patch_file" "$common_file")"
+build_root="${BUILD_ROOT:-/workspace/build/aria2-$ARIA2_VERSION-$ARTIFACT_NAME-$cache_key}"
+source_dir="$build_root/aria2-$ARIA2_VERSION"
 jobs="${BUILD_JOBS:-$(nproc)}"
 
 case "$BITTORRENT" in
@@ -19,65 +24,39 @@ case "$BITTORRENT" in
   *) echo "BITTORRENT must be yes or no" >&2; exit 1 ;;
 esac
 
-if [[ ! -f "$source_archive" ]]; then
-  echo "Missing source archive: $source_archive" >&2
-  exit 1
-fi
+[[ -f "$source_archive" ]] || { echo "Missing source archive: $source_archive" >&2; exit 1; }
+[[ -f "$patch_file" ]] || { echo "Missing patch file: $patch_file" >&2; exit 1; }
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends build-essential ca-certificates curl dpkg-dev file gettext libcppunit-dev libc-ares-dev libexpat1-dev libssh2-1-dev libssl-dev libsqlite3-dev patch pkg-config zlib1g-dev
 
-rm -rf "$build_root"
 mkdir -p "$build_root" "$output_dir"
-tar -xzf "$source_archive" -C "$build_root"
-source_dir="$(find "$build_root" -mindepth 1 -maxdepth 1 -type d -print -quit)"
-if [[ -z "$source_dir" ]]; then
-  echo "Could not find the extracted aria2 source directory" >&2
-  exit 1
+if [[ ! -d "$source_dir" ]]; then
+  tar -xzf "$source_archive" -C "$build_root"
+fi
+if [[ ! -f "$build_root/.connection-patch-applied" ]]; then
+  aria2_linux_apply_connection_patch "$source_dir" "$patch_file"
+  touch "$build_root/.connection-patch-applied"
 fi
 
-patch --batch --forward --fuzz=0 -p1 -d "$source_dir" < /workspace/patches/unlimited-max-connection-per-server.patch
-grep -Fq '"1", 1, -1,' "$source_dir/src/OptionHandlerFactory.cc"
-
 flags_test="$build_root/flags-test.o"
-printf '%s\n' 'int main() { return 0; }' | c++ $CPU_FLAGS -x c++ -c -o "$flags_test" -
-rm -f "$flags_test"
+aria2_linux_check_cpu_flags "$CPU_FLAGS" "$flags_test"
+aria2_linux_set_configure_args "$bittorrent_flag"
 
 pushd "$source_dir" >/dev/null
 configure_log="$build_root/configure.log"
-configure_args=(
-  --prefix=/usr
-  --with-openssl
-  --without-gnutls
-  --without-libnettle
-  --without-libgcrypt
-  --without-libgmp
-  --with-libcares
-  --with-libssh2
-  --with-sqlite3
-  --with-libz
-  --with-libexpat
-  --without-libxml2
-  --enable-metalink
-  --enable-websocket
-  --disable-libaria2
-  --with-ca-bundle=/etc/ssl/certs/ca-certificates.crt
-  "$bittorrent_flag"
-)
-ARIA2_STATIC=no CFLAGS="$CPU_FLAGS" CXXFLAGS="$CPU_FLAGS" LDFLAGS="-flto=auto" ./configure "${configure_args[@]}" 2>&1 | tee "$configure_log"
-grep -Eq "Bittorrent:[[:space:]]+$expected_bittorrent$" "$configure_log"
-
+if [[ ! -f "$build_root/.configured" || ! -f Makefile ]]; then
+  aria2_linux_configure "$CPU_FLAGS" "$expected_bittorrent" "$configure_log" "${ARIA2_CONFIGURE_ARGS[@]}"
+  touch "$build_root/.configured"
+fi
 make -j"$jobs"
 make -j"$jobs" check
-rm -rf "$build_root/install"
+mkdir -p "$build_root/install"
 make DESTDIR="$build_root/install" install
 
 binary="$build_root/install/usr/bin/aria2c"
-if [[ ! -x "$binary" ]]; then
-  echo "The Debian build did not install aria2c" >&2
-  exit 1
-fi
+[[ -x "$binary" ]] || { echo "The Debian build did not install aria2c" >&2; exit 1; }
 file "$binary" | grep -Eq 'ELF 64-bit.*x86-64'
 "$binary" --no-conf --max-connection-per-server=100000 --version > "$build_root/version.txt"
 grep -Fq "aria2 version $ARIA2_VERSION" "$build_root/version.txt"
@@ -102,7 +81,7 @@ build_info="$build_root/BUILD-INFO.txt"
   printf 'target: Debian x86-64\n'
   printf 'cpu baseline: %s\n' "$CPU_FLAGS"
   printf 'bittorrent: %s\n' "$BITTORRENT"
-  printf 'configure: ./configure %s\n' "${configure_args[*]}"
+  printf 'configure: ./configure %s\n' "${ARIA2_CONFIGURE_ARGS[*]}"
   printf '\naria2c --version:\n'
   cat "$build_root/version.txt"
 } > "$build_info"
@@ -124,10 +103,7 @@ mkdir -p "$shlibdeps_root/debian"
   printf 'Architecture: amd64\n'
 } > "$shlibdeps_root/debian/control"
 shlibs_depends="$(cd "$shlibdeps_root" && dpkg-shlibdeps -O "$binary" | sed -n 's/^shlibs:Depends=//p')"
-if [[ -z "$shlibs_depends" ]]; then
-  echo "Could not determine shared-library dependencies for $binary" >&2
-  exit 1
-fi
+[[ -n "$shlibs_depends" ]] || { echo "Could not determine shared-library dependencies for $binary" >&2; exit 1; }
 {
   printf 'Package: %s\n' "$package_name"
   printf 'Version: %s\n' "$package_version"
@@ -143,5 +119,4 @@ deb_archive_name="$ARTIFACT_NAME.deb"
 dpkg-deb --build --root-owner-group "$deb_root" "$output_dir/$deb_archive_name"
 (cd "$output_dir" && sha256sum "$deb_archive_name" > "$deb_archive_name.sha256")
 popd >/dev/null
-
-rm -rf "$build_root"
+printf 'Built %s using persistent build tree %s\n' "$deb_archive_name" "$build_root"
